@@ -151,31 +151,30 @@ export async function fetchChapters(mangaId, limit = 96) {
   } catch (err) { console.warn('fetchChapters:', err.message); return []; }
 }
 
-export async function fetchChapterPages(chapterId) {
-  if (!chapterId) return { pages: [], total: 0 };
+export async function fetchChapters(mangaId, limit = 96) {
   try {
-    // Get server info â€” this endpoint allows direct calls
-    const res = await fetch(`${BASE}/at-home/server/${chapterId}`);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data    = await res.json();
-    const baseUrl = data.baseUrl;
-    const hash    = data.chapter?.hash;
-    const saver   = data.chapter?.dataSaver || [];
-    const hq      = data.chapter?.data      || [];
+    const path = `/manga/${mangaId}/feed?limit=${limit}&translatedLanguage[]=en&order[chapter]=asc&contentRating[]=safe&contentRating[]=suggestive`;
+    const data = await apiFetch(path);
+    const all  = data.data || [];
 
-    return {
-      pages: saver.map((f, i) => ({
-        index: i + 1,
-        // Use dedicated /api/pages proxy for manga page images
-        url:   PAGES_PROXY + encodeURIComponent(`${baseUrl}/data-saver/${hash}/${f}`),
-        urlHQ: PAGES_PROXY + encodeURIComponent(`${baseUrl}/data/${hash}/${hq[i] || f}`),
-      })),
-      total: saver.length,
-    };
-  } catch (err) {
-    console.warn('fetchChapterPages:', err.message);
-    return { pages: [], total: 0 };
-  }
+    // Filter: only chapters with actual pages (no externalUrl, pages > 0)
+    const readable = all.filter(ch =>
+      !ch.attributes?.externalUrl &&
+      (ch.attributes?.pages || 0) > 0
+    );
+
+    // If no readable chapters, include all (fallback)
+    const list = readable.length > 0 ? readable : all;
+
+    return list.map(ch => ({
+      id:       ch.id,
+      num:      ch.attributes?.chapter || '?',
+      title:    ch.attributes?.title || 'Chapter ' + (ch.attributes?.chapter || '?'),
+      pages:    ch.attributes?.pages || 0,
+      date:     timeAgo(ch.attributes?.publishAt),
+      hasPages: !ch.attributes?.externalUrl && (ch.attributes?.pages || 0) > 0,
+    }));
+  } catch (err) { console.warn('fetchChapters:', err.message); return []; }
 }
 
 export async function fetchStats(mangaId) {
