@@ -1,4 +1,4 @@
-// MangaDex API â€” all requests go through our Vercel proxy
+// MangaDex API — all requests go through our Vercel proxy
 const BASE  = 'https://api.mangadex.org';
 const COVER = 'https://uploads.mangadex.org/covers';
 const PROXY       = '/api/proxy?url=';
@@ -19,7 +19,6 @@ export const TAG_MAP = {
   'historical': 'a9cb0326-d6d2-4753-9a84-bd3d3c91a9d7',
 };
 
-// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function coverUrl(mangaId, filename) {
   if (!mangaId || !filename) return null;
   const direct = `${COVER}/${mangaId}/${filename}.512.jpg`;
@@ -77,7 +76,6 @@ function fmt(manga, extra = {}) {
   };
 }
 
-// â”€â”€ Core API fetch through proxy â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async function apiFetch(path) {
   const url  = PROXY + encodeURIComponent(BASE + path);
   const ctrl = new AbortController();
@@ -92,8 +90,6 @@ async function apiFetch(path) {
     throw err;
   }
 }
-
-// â”€â”€ Public API functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function fetchTrending(limit = 20) {
   try {
@@ -137,22 +133,16 @@ export async function fetchMangaDetail(mangaId) {
   } catch (err) { console.warn('fetchMangaDetail:', err.message); return null; }
 }
 
-
 export async function fetchChapters(mangaId, limit = 96) {
   try {
     const path = `/manga/${mangaId}/feed?limit=${limit}&translatedLanguage[]=en&order[chapter]=asc&contentRating[]=safe&contentRating[]=suggestive`;
     const data = await apiFetch(path);
     const all  = data.data || [];
-
-    // Filter: only chapters with actual pages (no externalUrl, pages > 0)
     const readable = all.filter(ch =>
       !ch.attributes?.externalUrl &&
       (ch.attributes?.pages || 0) > 0
     );
-
-    // If no readable chapters, include all (fallback)
     const list = readable.length > 0 ? readable : all;
-
     return list.map(ch => ({
       id:       ch.id,
       num:      ch.attributes?.chapter || '?',
@@ -162,6 +152,30 @@ export async function fetchChapters(mangaId, limit = 96) {
       hasPages: !ch.attributes?.externalUrl && (ch.attributes?.pages || 0) > 0,
     }));
   } catch (err) { console.warn('fetchChapters:', err.message); return []; }
+}
+
+export async function fetchChapterPages(chapterId) {
+  if (!chapterId) return { pages: [], total: 0 };
+  try {
+    const res = await fetch(`${BASE}/at-home/server/${chapterId}`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data    = await res.json();
+    const baseUrl = data.baseUrl;
+    const hash    = data.chapter?.hash;
+    const saver   = data.chapter?.dataSaver || [];
+    const hq      = data.chapter?.data      || [];
+    return {
+      pages: saver.map((f, i) => ({
+        index: i + 1,
+        url:   PAGES_PROXY + encodeURIComponent(`${baseUrl}/data-saver/${hash}/${f}`),
+        urlHQ: PAGES_PROXY + encodeURIComponent(`${baseUrl}/data/${hash}/${hq[i] || f}`),
+      })),
+      total: saver.length,
+    };
+  } catch (err) {
+    console.warn('fetchChapterPages:', err.message);
+    return { pages: [], total: 0 };
+  }
 }
 
 export async function fetchStats(mangaId) {
