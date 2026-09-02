@@ -1,17 +1,10 @@
 import React from 'react';
-import { Search } from 'lucide-react';
-import { getScraperUpdates } from '../data/mockData';
+import { Search, Loader } from 'lucide-react';
+import { useSearch } from '../api/useManga';
 import MangaCard from '../components/MangaCard';
 
 export default function SearchPage({ query, setPage, setActiveManga }) {
-  const q = (query || '').toLowerCase().trim();
-  const allManga = getScraperUpdates();
-  const results = q ? allManga.filter(m =>
-    m.title.toLowerCase().includes(q) ||
-    m.author.toLowerCase().includes(q) ||
-    m.genres.some(g => g.includes(q)) ||
-    m.desc.toLowerCase().includes(q)
-  ) : [];
+  const { results, loading, error } = useSearch(query);
 
   const openManga = (m) => { setActiveManga(m); setPage('detail'); };
 
@@ -25,19 +18,34 @@ export default function SearchPage({ query, setPage, setActiveManga }) {
               Search: <span className="text-indigo-500">"{query}"</span>
             </h1>
           </div>
-          <p className="text-gray-500 text-sm ml-9">{results.length} result{results.length !== 1 ? 's' : ''} found</p>
+          <p className="text-gray-500 text-sm ml-9">
+            {loading ? 'Searching MangaDex...' : `${results.length} result${results.length !== 1 ? 's' : ''} found`}
+          </p>
         </div>
 
-        {results.length === 0 ? (
+        {loading && (
+          <div className="flex items-center justify-center py-20">
+            <Loader className="w-8 h-8 animate-spin text-indigo-400" />
+          </div>
+        )}
+
+        {!loading && results.length === 0 && query && (
           <div className="text-center py-24 text-gray-400">
             <Search className="w-14 h-14 mx-auto mb-4 opacity-20" />
             <h3 className="text-xl font-bold mb-2">No results found</h3>
             <p className="text-sm">Try a different search term.</p>
-            <button onClick={() => setPage('discover')} className="mt-5 text-indigo-500 font-semibold hover:underline">← Back to Discover</button>
+            <button onClick={() => setPage('discover')}
+              className="mt-5 text-indigo-500 font-semibold hover:underline">
+              Back to Discover
+            </button>
           </div>
-        ) : (
+        )}
+
+        {!loading && results.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-            {results.map(m => <MangaCard key={m.id} manga={m} onClick={openManga} />)}
+            {results.map(m => (
+              <MangaCard key={m.id} manga={m} onClick={openManga} />
+            ))}
           </div>
         )}
       </div>
