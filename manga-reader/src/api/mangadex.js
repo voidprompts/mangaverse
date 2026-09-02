@@ -137,19 +137,6 @@ export async function fetchMangaDetail(mangaId) {
   } catch (err) { console.warn('fetchMangaDetail:', err.message); return null; }
 }
 
-export async function fetchChapters(mangaId, limit = 96) {
-  try {
-    const path = `/manga/${mangaId}/feed?limit=${limit}&translatedLanguage[]=en&order[chapter]=asc&contentRating[]=safe&contentRating[]=suggestive`;
-    const data = await apiFetch(path);
-    return (data.data || []).map(ch => ({
-      id:    ch.id,
-      num:   ch.attributes?.chapter || '?',
-      title: ch.attributes?.title || 'Chapter ' + (ch.attributes?.chapter || '?'),
-      pages: ch.attributes?.pages || 0,
-      date:  timeAgo(ch.attributes?.publishAt),
-    }));
-  } catch (err) { console.warn('fetchChapters:', err.message); return []; }
-}
 
 export async function fetchChapters(mangaId, limit = 96) {
   try {
