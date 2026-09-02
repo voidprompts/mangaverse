@@ -1,13 +1,9 @@
-// MangaDex API - with CORS proxy fallback
+// MangaDex API â€” uses our own Vercel proxy (no CORS issues!)
 const BASE  = 'https://api.mangadex.org';
 const COVER = 'https://uploads.mangadex.org/covers';
 
-// We try direct first, then fall back to proxy
-const PROXIES = [
-  '',                                          // direct (works on some browsers)
-  'https://corsproxy.io/?',                    // proxy 1
-  'https://api.allorigins.win/raw?url=',       // proxy 2
-];
+// Our own serverless proxy â€” works perfectly on Vercel!
+const PROXY = '/api/proxy?url=';
 
 export const TAG_MAP = {
   'action':     '391b0423-d847-456f-aff0-8b0cfc03066b',
@@ -24,57 +20,10 @@ export const TAG_MAP = {
   'historical': 'a9cb0326-d6d2-4753-9a84-bd3d3c91a9d7',
 };
 
-// Remember which proxy worked
-let workingProxy = '';
-let proxyTested  = false;
-
-async function tryFetch(url) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
-  try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: { 'Accept': 'application/json' },
-    });
-    clearTimeout(timer);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    if (!data || data.result === 'error') throw new Error('API error');
-    return data;
-  } catch (err) {
-    clearTimeout(timer);
-    throw err;
-  }
-}
-
-async function apiFetch(path) {
-  // If we already know a working proxy, use it
-  if (proxyTested) {
-    return tryFetch(workingProxy + encodeURIComponent(BASE + path));
-  }
-
-  // Try each proxy in order until one works
-  for (const proxy of PROXIES) {
-    try {
-      const url = proxy
-        ? proxy + encodeURIComponent(BASE + path)
-        : BASE + path;
-      const data = await tryFetch(url);
-      workingProxy = proxy;
-      proxyTested  = true;
-      console.log('MangaDex: using proxy:', proxy || 'direct');
-      return data;
-    } catch (err) {
-      console.warn('Proxy failed:', proxy || 'direct', err.message);
-    }
-  }
-  throw new Error('All proxies failed');
-}
-
 // â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function coverUrl(mangaId, filename) {
   if (!filename) return null;
-  return `${COVER}/${mangaId}/${filename}.256.jpg`;
+  return `${COVER}/${mangaId}/${filename}.512.jpg`;
 }
 
 function extractCover(manga) {
@@ -135,7 +84,35 @@ function fmt(manga, extra = {}) {
   };
 }
 
-// â”€â”€ Public API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â”€â”€ Core fetch through our proxy â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+async function apiFetch(path) {
+  const fullUrl = BASE + path;
+  const proxyUrl = PROXY + encodeURIComponent(fullUrl);
+  
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  
+  try {
+    const res = await fetch(proxyUrl, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.json();
+  } catch (err) {
+    clearTimeout(timer);
+    // Fallback: try direct if proxy fails (e.g. local dev)
+    try {
+      const res2 = await fetch(fullUrl, {
+        headers: { 'Accept': 'application/json' },
+      });
+      if (!res2.ok) throw new Error('HTTP ' + res2.status);
+      return await res2.json();
+    } catch (err2) {
+      throw new Error('Both proxy and direct failed');
+    }
+  }
+}
+
+// â”€â”€ Public API functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function fetchTrending(limit = 20) {
   try {
@@ -197,7 +174,7 @@ export async function fetchMangaDetail(mangaId) {
 
 export async function fetchChapters(mangaId, limit = 30, offset = 0) {
   try {
-    const path = `/manga/${mangaId}/feed?limit=${limit}&offset=${offset}&translatedLanguage[]=en&order[chapter]=desc&contentRating[]=safe&contentRating[]=suggestive`;
+    const path = `/manga/${mangaId}/feed?limit=${limit}&offset=${offset}&translatedLanguage[]=en&order[chapter]=asc&contentRating[]=safe&contentRating[]=suggestive`;
     const data = await apiFetch(path);
     return (data.data || []).map(ch => ({
       id:    ch.id,
@@ -215,10 +192,8 @@ export async function fetchChapters(mangaId, limit = 30, offset = 0) {
 export async function fetchChapterPages(chapterId) {
   if (!chapterId) return { pages: [], total: 0 };
   try {
-    // Chapter pages don't need proxy - MangaDex at-home servers allow CORS
-    const res = await fetch(`${BASE}/at-home/server/${chapterId}`, {
-      headers: { 'Accept': 'application/json' },
-    });
+    // at-home server allows CORS directly â€” no proxy needed
+    const res = await fetch(`${BASE}/at-home/server/${chapterId}`);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     const baseUrl   = data.baseUrl;
