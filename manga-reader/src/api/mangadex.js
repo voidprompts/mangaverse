@@ -1,6 +1,13 @@
-// MangaDex API - CORS safe version
-const BASE = 'https://api.mangadex.org';
+// MangaDex API - with CORS proxy fallback
+const BASE  = 'https://api.mangadex.org';
 const COVER = 'https://uploads.mangadex.org/covers';
+
+// We try direct first, then fall back to proxy
+const PROXIES = [
+  '',                                          // direct (works on some browsers)
+  'https://corsproxy.io/?',                    // proxy 1
+  'https://api.allorigins.win/raw?url=',       // proxy 2
+];
 
 export const TAG_MAP = {
   'action':     '391b0423-d847-456f-aff0-8b0cfc03066b',
@@ -17,6 +24,54 @@ export const TAG_MAP = {
   'historical': 'a9cb0326-d6d2-4753-9a84-bd3d3c91a9d7',
 };
 
+// Remember which proxy worked
+let workingProxy = '';
+let proxyTested  = false;
+
+async function tryFetch(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'Accept': 'application/json' },
+    });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    if (!data || data.result === 'error') throw new Error('API error');
+    return data;
+  } catch (err) {
+    clearTimeout(timer);
+    throw err;
+  }
+}
+
+async function apiFetch(path) {
+  // If we already know a working proxy, use it
+  if (proxyTested) {
+    return tryFetch(workingProxy + encodeURIComponent(BASE + path));
+  }
+
+  // Try each proxy in order until one works
+  for (const proxy of PROXIES) {
+    try {
+      const url = proxy
+        ? proxy + encodeURIComponent(BASE + path)
+        : BASE + path;
+      const data = await tryFetch(url);
+      workingProxy = proxy;
+      proxyTested  = true;
+      console.log('MangaDex: using proxy:', proxy || 'direct');
+      return data;
+    } catch (err) {
+      console.warn('Proxy failed:', proxy || 'direct', err.message);
+    }
+  }
+  throw new Error('All proxies failed');
+}
+
+// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function coverUrl(mangaId, filename) {
   if (!filename) return null;
   return `${COVER}/${mangaId}/${filename}.256.jpg`;
@@ -44,12 +99,12 @@ function getDesc(manga) {
 
 function timeAgo(dateStr) {
   if (!dateStr) return 'Recently';
-  const diff = Date.now() - new Date(dateStr).getTime();
+  const diff  = Date.now() - new Date(dateStr).getTime();
   const mins  = Math.floor(diff / 60000);
   const hours = Math.floor(diff / 3600000);
   const days  = Math.floor(diff / 86400000);
-  if (mins  < 60)  return mins  + 'm ago';
-  if (hours < 24)  return hours + 'h ago';
+  if (mins  < 60) return mins  + 'm ago';
+  if (hours < 24) return hours + 'h ago';
   return days + 'd ago';
 }
 
@@ -67,9 +122,11 @@ function fmt(manga, extra = {}) {
                   ? (follows / 1000000).toFixed(1) + 'M'
                   : follows > 1000
                     ? (follows / 1000).toFixed(0) + 'K'
-                    : String(follows || 'N/A'),
+                    : 'N/A',
     status:     manga.attributes?.status || 'ongoing',
-    tags:       (manga.attributes?.tags || []).map(t => t.attributes?.name?.en).filter(Boolean),
+    tags:       (manga.attributes?.tags || [])
+                  .map(t => t.attributes?.name?.en)
+                  .filter(Boolean),
     updated:    timeAgo(manga.attributes?.updatedAt),
     isNew:      false,
     isTrending: false,
@@ -78,30 +135,12 @@ function fmt(manga, extra = {}) {
   };
 }
 
-// â”€â”€ Core fetch with timeout & error handling â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-async function apiFetch(url) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000); // 10s timeout
-  try {
-    const res = await fetch(url, {
-      signal: controller.signal,
-      headers: { 'Accept': 'application/json' },
-    });
-    clearTimeout(timer);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    return await res.json();
-  } catch (err) {
-    clearTimeout(timer);
-    throw err;
-  }
-}
-
-// â”€â”€ Public API functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â”€â”€ Public API â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function fetchTrending(limit = 20) {
   try {
-    const url = `${BASE}/manga?limit=${limit}&order[followedCount]=desc&contentRating[]=safe&contentRating[]=suggestive&includes[]=cover_art&includes[]=author&hasAvailableChapters=true&availableTranslatedLanguage[]=en`;
-    const data = await apiFetch(url);
+    const path = `/manga?limit=${limit}&order[followedCount]=desc&contentRating[]=safe&contentRating[]=suggestive&includes[]=cover_art&includes[]=author&hasAvailableChapters=true&availableTranslatedLanguage[]=en`;
+    const data = await apiFetch(path);
     return (data.data || []).map((m, i) => fmt(m, { isTrending: true, trendingRank: i + 1 }));
   } catch (err) {
     console.warn('fetchTrending failed:', err.message);
@@ -111,8 +150,8 @@ export async function fetchTrending(limit = 20) {
 
 export async function fetchLatest(limit = 20) {
   try {
-    const url = `${BASE}/manga?limit=${limit}&order[latestUploadedChapter]=desc&contentRating[]=safe&contentRating[]=suggestive&includes[]=cover_art&includes[]=author&hasAvailableChapters=true&availableTranslatedLanguage[]=en`;
-    const data = await apiFetch(url);
+    const path = `/manga?limit=${limit}&order[latestUploadedChapter]=desc&contentRating[]=safe&contentRating[]=suggestive&includes[]=cover_art&includes[]=author&hasAvailableChapters=true&availableTranslatedLanguage[]=en`;
+    const data = await apiFetch(path);
     return (data.data || []).map(m => fmt(m, { isNew: true }));
   } catch (err) {
     console.warn('fetchLatest failed:', err.message);
@@ -124,8 +163,8 @@ export async function fetchByCategory(categoryId, limit = 20) {
   const tagId = TAG_MAP[categoryId];
   if (!tagId) return [];
   try {
-    const url = `${BASE}/manga?limit=${limit}&includedTags[]=${tagId}&order[followedCount]=desc&contentRating[]=safe&contentRating[]=suggestive&includes[]=cover_art&includes[]=author&hasAvailableChapters=true&availableTranslatedLanguage[]=en`;
-    const data = await apiFetch(url);
+    const path = `/manga?limit=${limit}&includedTags[]=${tagId}&order[followedCount]=desc&contentRating[]=safe&contentRating[]=suggestive&includes[]=cover_art&includes[]=author&hasAvailableChapters=true&availableTranslatedLanguage[]=en`;
+    const data = await apiFetch(path);
     return (data.data || []).map(m => fmt(m));
   } catch (err) {
     console.warn('fetchByCategory failed:', err.message);
@@ -136,8 +175,8 @@ export async function fetchByCategory(categoryId, limit = 20) {
 export async function searchManga(query, limit = 20) {
   if (!query?.trim()) return [];
   try {
-    const url = `${BASE}/manga?limit=${limit}&title=${encodeURIComponent(query.trim())}&contentRating[]=safe&contentRating[]=suggestive&includes[]=cover_art&includes[]=author&hasAvailableChapters=true`;
-    const data = await apiFetch(url);
+    const path = `/manga?limit=${limit}&title=${encodeURIComponent(query.trim())}&contentRating[]=safe&contentRating[]=suggestive&includes[]=cover_art&includes[]=author&hasAvailableChapters=true`;
+    const data = await apiFetch(path);
     return (data.data || []).map(m => fmt(m));
   } catch (err) {
     console.warn('searchManga failed:', err.message);
@@ -147,8 +186,8 @@ export async function searchManga(query, limit = 20) {
 
 export async function fetchMangaDetail(mangaId) {
   try {
-    const url = `${BASE}/manga/${mangaId}?includes[]=cover_art&includes[]=author&includes[]=artist`;
-    const data = await apiFetch(url);
+    const path = `/manga/${mangaId}?includes[]=cover_art&includes[]=author&includes[]=artist`;
+    const data = await apiFetch(path);
     return fmt(data.data);
   } catch (err) {
     console.warn('fetchMangaDetail failed:', err.message);
@@ -158,8 +197,8 @@ export async function fetchMangaDetail(mangaId) {
 
 export async function fetchChapters(mangaId, limit = 30, offset = 0) {
   try {
-    const url = `${BASE}/manga/${mangaId}/feed?limit=${limit}&offset=${offset}&translatedLanguage[]=en&order[chapter]=desc&contentRating[]=safe&contentRating[]=suggestive`;
-    const data = await apiFetch(url);
+    const path = `/manga/${mangaId}/feed?limit=${limit}&offset=${offset}&translatedLanguage[]=en&order[chapter]=desc&contentRating[]=safe&contentRating[]=suggestive`;
+    const data = await apiFetch(path);
     return (data.data || []).map(ch => ({
       id:    ch.id,
       num:   ch.attributes?.chapter || '?',
@@ -176,12 +215,16 @@ export async function fetchChapters(mangaId, limit = 30, offset = 0) {
 export async function fetchChapterPages(chapterId) {
   if (!chapterId) return { pages: [], total: 0 };
   try {
-    const url = `${BASE}/at-home/server/${chapterId}`;
-    const data = await apiFetch(url);
-    const baseUrl    = data.baseUrl;
-    const hash       = data.chapter?.hash;
-    const dataSaver  = data.chapter?.dataSaver || [];
-    const fullData   = data.chapter?.data || [];
+    // Chapter pages don't need proxy - MangaDex at-home servers allow CORS
+    const res = await fetch(`${BASE}/at-home/server/${chapterId}`, {
+      headers: { 'Accept': 'application/json' },
+    });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const baseUrl   = data.baseUrl;
+    const hash      = data.chapter?.hash;
+    const dataSaver = data.chapter?.dataSaver || [];
+    const fullData  = data.chapter?.data || [];
     return {
       pages: dataSaver.map((filename, i) => ({
         index: i + 1,
@@ -198,8 +241,8 @@ export async function fetchChapterPages(chapterId) {
 
 export async function fetchStats(mangaId) {
   try {
-    const url = `${BASE}/statistics/manga/${mangaId}`;
-    const data = await apiFetch(url);
+    const path = `/statistics/manga/${mangaId}`;
+    const data = await apiFetch(path);
     const s = data.statistics?.[mangaId];
     return {
       rating:  s?.rating?.bayesian?.toFixed(1) || 'N/A',
