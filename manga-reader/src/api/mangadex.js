@@ -10,12 +10,72 @@ function getDesc(m){const d=m.attributes&&m.attributes.description?m.attributes.
 function timeAgo(s){if(!s)return'Recently';const d=Date.now()-new Date(s).getTime();const mn=Math.floor(d/60000);const h=Math.floor(d/3600000);const dy=Math.floor(d/86400000);if(mn<60)return mn+'m ago';if(h<24)return h+'h ago';return dy+'d ago';}
 function fmt(m,extra){extra=extra||{};return Object.assign({id:m.id,title:getTitle(m),author:extractAuthor(m),cover:extractCover(m),desc:getDesc(m),chapters:m.attributes&&m.attributes.lastChapter?m.attributes.lastChapter:'?',rating:((m.attributes&&m.attributes.rating&&m.attributes.rating.bayesian?m.attributes.rating.bayesian:0)).toFixed(1),views:'N/A',status:m.attributes&&m.attributes.status?m.attributes.status:'ongoing',tags:(m.attributes&&m.attributes.tags?m.attributes.tags:[]).map(function(t){return t.attributes&&t.attributes.name?t.attributes.name.en:null;}).filter(Boolean),updated:timeAgo(m.attributes&&m.attributes.updatedAt?m.attributes.updatedAt:null),isNew:false,isTrending:false,source:'mangadex'},extra);}
 async function apiFetch(path){const url=PROXY+encodeURIComponent(BASE+path);const ctrl=new AbortController();const t=setTimeout(function(){ctrl.abort();},15000);try{const res=await fetch(url,{signal:ctrl.signal});clearTimeout(t);if(!res.ok)throw new Error('HTTP '+res.status);return await res.json();}catch(err){clearTimeout(t);throw err;}}
-export async function fetchTrending(limit){limit=limit||20;try{const path='/manga?limit='+limit+'&order[followedCount]=desc&contentRating[]=safe&contentRating[]=suggestive&includes[]=cover_art&includes[]=author&hasAvailableChapters=true&availableTranslatedLanguage[]=en';const data=await apiFetch(path);return(data.data||[]).map(function(m,i){return fmt(m,{isTrending:true,trendingRank:i+1});});}catch(err){console.warn('fetchTrending:',err.message);return[];}}
-export async function fetchLatest(limit){limit=limit||20;try{const path='/manga?limit='+limit+'&order[latestUploadedChapter]=desc&contentRating[]=safe&contentRating[]=suggestive&includes[]=cover_art&includes[]=author&hasAvailableChapters=true&availableTranslatedLanguage[]=en';const data=await apiFetch(path);return(data.data||[]).map(function(m){return fmt(m,{isNew:true});});}catch(err){console.warn('fetchLatest:',err.message);return[];}}
-export async function fetchByCategory(categoryId,limit){limit=limit||20;const tagId=TAG_MAP[categoryId];if(!tagId)return[];try{const path='/manga?limit='+limit+'&includedTags[]='+tagId+'&order[followedCount]=desc&contentRating[]=safe&contentRating[]=suggestive&includes[]=cover_art&includes[]=author&hasAvailableChapters=true&availableTranslatedLanguage[]=en';const data=await apiFetch(path);return(data.data||[]).map(function(m){return fmt(m);});}catch(err){console.warn('fetchByCategory:',err.message);return[];}}
-export async function searchManga(query,limit){limit=limit||20;if(!query||!query.trim())return[];try{const path='/manga?limit='+limit+'&title='+encodeURIComponent(query.trim())+'&contentRating[]=safe&contentRating[]=suggestive&includes[]=cover_art&includes[]=author&hasAvailableChapters=true';const data=await apiFetch(path);return(data.data||[]).map(function(m){return fmt(m);});}catch(err){console.warn('searchManga:',err.message);return[];}}
+
+// Fetch manga that have scanlation chapters hosted directly on MangaDex (not external)
+// excludeExternalUrl=1 means only chapters with real hosted pages
+const HOSTED='&excludedGroups[]=a38fc704-90ab-452f-9336-59d84997a9ce&hasAvailableChapters=true&availableTranslatedLanguage[]=en&excludeExternalUrl=1';
+
+export async function fetchTrending(limit){
+  limit=limit||20;
+  try{
+    // Use excludeExternalUrl to only get manga with real hosted pages
+    const path='/manga?limit='+limit+'&order[followedCount]=desc&contentRating[]=safe&contentRating[]=suggestive&includes[]=cover_art&includes[]=author&hasAvailableChapters=true&availableTranslatedLanguage[]=en&excludeExternalUrl=1';
+    const data=await apiFetch(path);
+    return(data.data||[]).map(function(m,i){return fmt(m,{isTrending:true,trendingRank:i+1});});
+  }catch(err){
+    // Fallback without excludeExternalUrl filter
+    try{
+      const path='/manga?limit='+limit+'&order[followedCount]=desc&contentRating[]=safe&contentRating[]=suggestive&includes[]=cover_art&includes[]=author&hasAvailableChapters=true&availableTranslatedLanguage[]=en';
+      const data=await apiFetch(path);
+      return(data.data||[]).map(function(m,i){return fmt(m,{isTrending:true,trendingRank:i+1});});
+    }catch(e){console.warn('fetchTrending:',e.message);return[];}
+  }
+}
+export async function fetchLatest(limit){
+  limit=limit||20;
+  try{
+    const path='/manga?limit='+limit+'&order[latestUploadedChapter]=desc&contentRating[]=safe&contentRating[]=suggestive&includes[]=cover_art&includes[]=author&hasAvailableChapters=true&availableTranslatedLanguage[]=en&excludeExternalUrl=1';
+    const data=await apiFetch(path);
+    return(data.data||[]).map(function(m){return fmt(m,{isNew:true});});
+  }catch(err){
+    try{
+      const path='/manga?limit='+limit+'&order[latestUploadedChapter]=desc&contentRating[]=safe&contentRating[]=suggestive&includes[]=cover_art&includes[]=author&hasAvailableChapters=true&availableTranslatedLanguage[]=en';
+      const data=await apiFetch(path);
+      return(data.data||[]).map(function(m){return fmt(m,{isNew:true});});
+    }catch(e){console.warn('fetchLatest:',e.message);return[];}
+  }
+}
+export async function fetchByCategory(categoryId,limit){
+  limit=limit||20;
+  const tagId=TAG_MAP[categoryId];
+  if(!tagId)return[];
+  try{
+    const path='/manga?limit='+limit+'&includedTags[]='+tagId+'&order[followedCount]=desc&contentRating[]=safe&contentRating[]=suggestive&includes[]=cover_art&includes[]=author&hasAvailableChapters=true&availableTranslatedLanguage[]=en&excludeExternalUrl=1';
+    const data=await apiFetch(path);
+    return(data.data||[]).map(function(m){return fmt(m);});
+  }catch(err){console.warn('fetchByCategory:',err.message);return[];}
+}
+export async function searchManga(query,limit){
+  limit=limit||20;
+  if(!query||!query.trim())return[];
+  try{
+    const path='/manga?limit='+limit+'&title='+encodeURIComponent(query.trim())+'&contentRating[]=safe&contentRating[]=suggestive&includes[]=cover_art&includes[]=author&hasAvailableChapters=true';
+    const data=await apiFetch(path);
+    return(data.data||[]).map(function(m){return fmt(m);});
+  }catch(err){console.warn('searchManga:',err.message);return[];}
+}
 export async function fetchMangaDetail(mangaId){try{const data=await apiFetch('/manga/'+mangaId+'?includes[]=cover_art&includes[]=author');return fmt(data.data);}catch(err){console.warn('fetchMangaDetail:',err.message);return null;}}
-export async function fetchChapters(mangaId,limit){limit=limit||96;try{const path='/manga/'+mangaId+'/feed?limit='+limit+'&translatedLanguage[]=en&order[chapter]=asc&contentRating[]=safe&contentRating[]=suggestive';const data=await apiFetch(path);const all=data.data||[];const readable=all.filter(function(ch){return !ch.attributes.externalUrl&&(ch.attributes.pages||0)>0;});const list=readable.length>0?readable:all;return list.map(function(ch){return{id:ch.id,num:ch.attributes.chapter||'?',title:ch.attributes.title||('Chapter '+(ch.attributes.chapter||'?')),pages:ch.attributes.pages||0,date:timeAgo(ch.attributes.publishAt),hasPages:!ch.attributes.externalUrl&&(ch.attributes.pages||0)>0};});}catch(err){console.warn('fetchChapters:',err.message);return[];}}
+export async function fetchChapters(mangaId,limit){
+  limit=limit||96;
+  try{
+    const path='/manga/'+mangaId+'/feed?limit='+limit+'&translatedLanguage[]=en&order[chapter]=asc&contentRating[]=safe&contentRating[]=suggestive';
+    const data=await apiFetch(path);
+    const all=data.data||[];
+    const readable=all.filter(function(ch){return !ch.attributes.externalUrl&&(ch.attributes.pages||0)>0;});
+    const list=readable.length>0?readable:all;
+    return list.map(function(ch){return{id:ch.id,num:ch.attributes.chapter||'?',title:ch.attributes.title||('Chapter '+(ch.attributes.chapter||'?')),pages:ch.attributes.pages||0,date:timeAgo(ch.attributes.publishAt),hasPages:!ch.attributes.externalUrl&&(ch.attributes.pages||0)>0};});
+  }catch(err){console.warn('fetchChapters:',err.message);return[];}
+}
 export async function fetchChapterPages(chapterId){
   if(!chapterId)return{pages:[],total:0};
   try{
