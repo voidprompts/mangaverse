@@ -1,46 +1,56 @@
-export default async function handler(req, res) {
+const https = require('https');
+const http = require('http');
+
+module.exports = function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  if (req.method === 'OPTIONS') return res.status(200).end();
 
-  const { url } = req.query;
-  if (!url) return res.status(400).json({ error: 'Missing url' });
+  if (req.method === 'OPTIONS') { res.writeHead(200); res.end(); return; }
+
+  const raw = req.query && req.query.url ? req.query.url : null;
+  if (!raw) { res.writeHead(400); res.end(JSON.stringify({ error: 'Missing url' })); return; }
 
   let decoded;
-  try { decoded = decodeURIComponent(url); }
-  catch(e) { return res.status(400).json({ error: 'Bad url' }); }
+  try { decoded = decodeURIComponent(raw); }
+  catch(e) { res.writeHead(400); res.end(JSON.stringify({ error: 'Bad url' })); return; }
 
-  const allowed = [
-    'api.mangadex.org',
-    'uploads.mangadex.org',
-    'mangadex.network',
-  ];
-  if (!allowed.some(d => decoded.includes(d))) {
-    return res.status(403).json({ error: 'Not allowed' });
+  const allowed = ['api.mangadex.org', 'uploads.mangadex.org', 'mangadex.network'];
+  if (!allowed.some(function(d) { return decoded.indexOf(d) !== -1; })) {
+    res.writeHead(403); res.end(JSON.stringify({ error: 'Not allowed' })); return;
   }
 
-  try {
-    const response = await fetch(decoded, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
-        'Accept': '*/*',
-        'Referer': 'https://mangadex.org/',
-        'Origin': 'https://mangadex.org',
-      },
-    });
+  var parsedUrl;
+  try { parsedUrl = new URL(decoded); }
+  catch(e) { res.writeHead(400); res.end(JSON.stringify({ error: 'Invalid url' })); return; }
 
-    if (!response.ok) {
-      return res.status(response.status).json({ error: 'Upstream: ' + response.status });
+  var lib = parsedUrl.protocol === 'https:' ? https : http;
+  var options = {
+    hostname: parsedUrl.hostname,
+    port: parsedUrl.port || (parsedUrl.protocol === 'https:' ? 443 : 80),
+    path: parsedUrl.pathname + (parsedUrl.search || ''),
+    method: 'GET',
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36',
+      'Accept': '*/*',
+      'Referer': 'https://mangadex.org/',
+      'Origin': 'https://mangadex.org'
     }
+  };
 
-    const contentType = response.headers.get('content-type') || 'application/octet-stream';
-    const buffer = await response.arrayBuffer();
+  var proxyReq = lib.request(options, function(proxyRes) {
+    var ct = proxyRes.headers['content-type'] || 'application/octet-stream';
+    var isImage = ct.indexOf('image') !== -1;
+    res.writeHead(proxyRes.statusCode, {
+      'Content-Type': ct,
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': isImage ? 's-maxage=86400' : 's-maxage=60'
+    });
+    proxyRes.pipe(res);
+  });
 
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Cache-Control', 's-maxage=86400, stale-while-revalidate=3600');
-    return res.status(200).send(Buffer.from(buffer));
+  proxyReq.on('error', function(err) {
+    try { res.writeHead(500); res.end(JSON.stringify({ error: err.message })); } catch(e) {}
+  });
 
-  } catch (err) {
-    return res.status(500).json({ error: err.message });
-  }
-}
+  proxyReq.end();
+};
