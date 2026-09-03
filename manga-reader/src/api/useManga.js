@@ -13,7 +13,9 @@ function mergeManga(a, b, limit) {
   limit = limit || 40;
   const seen = new Set();
   const result = [];
-  for (const item of [...a, ...b]) {
+  const all = [...(a || []), ...(b || [])];
+  for (const item of all) {
+    if (!item) continue;
     const key = (item.title || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     if (!key || seen.has(key)) continue;
     seen.add(key);
@@ -21,6 +23,28 @@ function mergeManga(a, b, limit) {
     if (result.length >= limit) break;
   }
   return result;
+}
+
+function interleave(a, b) {
+  const result = [];
+  const maxLen = Math.max((a || []).length, (b || []).length);
+  for (let i = 0; i < maxLen; i++) {
+    if (a && a[i]) result.push(a[i]);
+    if (b && b[i]) result.push(b[i]);
+  }
+  return result;
+}
+
+// Safe parallel fetch: never throws, always returns arrays
+async function safeBoth(fnA, fnB) {
+  const [ra, rb] = await Promise.allSettled([
+    Promise.resolve().then(fnA).catch(() => []),
+    Promise.resolve().then(fnB).catch(() => []),
+  ]);
+  return [
+    ra.status === 'fulfilled' ? (ra.value || []) : [],
+    rb.status === 'fulfilled' ? (rb.value || []) : [],
+  ];
 }
 
 // â”€â”€ Trending â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -35,18 +59,11 @@ export function useTrending() {
     setLoading(true);
     setError(null);
     try {
-      // Fire both in parallel
-      const [mdx, cmk] = await Promise.allSettled([fetchTrending(20), comickTrending(20)]);
-      const mdxList = mdx.status === 'fulfilled' ? mdx.value : [];
-      const cmkList = cmk.status === 'fulfilled' ? cmk.value : [];
-      // Interleave: alternate sources so both appear
-      const interleaved = [];
-      const maxLen = Math.max(mdxList.length, cmkList.length);
-      for (let i = 0; i < maxLen; i++) {
-        if (mdxList[i]) interleaved.push(mdxList[i]);
-        if (cmkList[i]) interleaved.push(cmkList[i]);
-      }
-      const merged = mergeManga(interleaved, [], 40);
+      const [mdxList, cmkList] = await safeBoth(
+        () => fetchTrending(20),
+        () => comickTrending(20)
+      );
+      const merged = mergeManga(interleave(mdxList, cmkList), [], 40);
       setManga(merged);
       setLastUpdate(new Date());
       if (merged.length === 0) setError('No results');
@@ -77,16 +94,11 @@ export function useLatest() {
     setLoading(true);
     setError(null);
     try {
-      const [mdx, cmk] = await Promise.allSettled([fetchLatest(20), comickLatest(20)]);
-      const mdxList = mdx.status === 'fulfilled' ? mdx.value : [];
-      const cmkList = cmk.status === 'fulfilled' ? cmk.value : [];
-      const interleaved = [];
-      const maxLen = Math.max(mdxList.length, cmkList.length);
-      for (let i = 0; i < maxLen; i++) {
-        if (mdxList[i]) interleaved.push(mdxList[i]);
-        if (cmkList[i]) interleaved.push(cmkList[i]);
-      }
-      const merged = mergeManga(interleaved, [], 40);
+      const [mdxList, cmkList] = await safeBoth(
+        () => fetchLatest(20),
+        () => comickLatest(20)
+      );
+      const merged = mergeManga(interleave(mdxList, cmkList), [], 40);
       setManga(merged);
       if (merged.length === 0) setError('No results');
     } catch (e) {
@@ -115,21 +127,14 @@ export function useCategory(categoryId) {
     if (!categoryId) return;
     setLoading(true);
     setError(null);
-    Promise.allSettled([fetchByCategory(categoryId, 20), comickByCategory(categoryId, 20)])
-      .then(([mdx, cmk]) => {
-        const mdxList = mdx.status === 'fulfilled' ? mdx.value : [];
-        const cmkList = cmk.status === 'fulfilled' ? cmk.value : [];
-        const interleaved = [];
-        const maxLen = Math.max(mdxList.length, cmkList.length);
-        for (let i = 0; i < maxLen; i++) {
-          if (mdxList[i]) interleaved.push(mdxList[i]);
-          if (cmkList[i]) interleaved.push(cmkList[i]);
-        }
-        const merged = mergeManga(interleaved, [], 40);
-        setManga(merged);
-        if (merged.length === 0) setError('No results');
-      })
-      .catch(e => setError(e.message))
+    safeBoth(
+      () => fetchByCategory(categoryId, 20),
+      () => comickByCategory(categoryId, 20)
+    ).then(([mdxList, cmkList]) => {
+      const merged = mergeManga(interleave(mdxList, cmkList), [], 40);
+      setManga(merged);
+      if (merged.length === 0) setError('No results');
+    }).catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }, [categoryId]);
 
@@ -150,16 +155,11 @@ export function useSearch(query) {
       setLoading(true);
       setError(null);
       try {
-        const [mdx, cmk] = await Promise.allSettled([searchManga(query, 20), comickSearch(query, 20)]);
-        const mdxList = mdx.status === 'fulfilled' ? mdx.value : [];
-        const cmkList = cmk.status === 'fulfilled' ? cmk.value : [];
-        const interleaved = [];
-        const maxLen = Math.max(mdxList.length, cmkList.length);
-        for (let i = 0; i < maxLen; i++) {
-          if (mdxList[i]) interleaved.push(mdxList[i]);
-          if (cmkList[i]) interleaved.push(cmkList[i]);
-        }
-        const merged = mergeManga(interleaved, [], 40);
+        const [mdxList, cmkList] = await safeBoth(
+          () => searchManga(query, 20),
+          () => comickSearch(query, 20)
+        );
+        const merged = mergeManga(interleave(mdxList, cmkList), [], 40);
         setResults(merged);
         if (merged.length === 0) setError('No results found');
       } catch (e) {
@@ -182,14 +182,14 @@ export function useMangaDetail(mangaId) {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!mangaId) return;
+    if (!mangaId) { setLoading(false); return; }
     setLoading(true);
     setError(null);
     const isComick = String(mangaId).startsWith('comick_');
     const fetcher = isComick
       ? comickDetail(mangaId.replace('comick_', ''))
       : fetchMangaDetail(mangaId);
-    fetcher
+    Promise.resolve(fetcher)
       .then(data => { setManga(data); if (!data) setError('Not found'); })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
@@ -201,19 +201,22 @@ export function useMangaDetail(mangaId) {
 // â”€â”€ Chapters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export function useChapters(mangaId) {
   const [chapters, setChapters] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!mangaId) return;
+    if (!mangaId) { setLoading(false); return; }
     setLoading(true);
     setError(null);
     const isComick = String(mangaId).startsWith('comick_');
     const fetcher = isComick
       ? comickChapters(mangaId.replace('comick_', ''))
       : fetchChapters(mangaId);
-    fetcher
-      .then(data => { setChapters(data || []); if (!data || !data.length) setError('No chapters available'); })
+    Promise.resolve(fetcher)
+      .then(data => {
+        setChapters(data || []);
+        if (!data || !data.length) setError('No chapters available');
+      })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }, [mangaId]);
@@ -225,7 +228,7 @@ export function useChapters(mangaId) {
 export function useChapterPages(chapterId) {
   const [pages, setPages] = useState([]);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -234,19 +237,18 @@ export function useChapterPages(chapterId) {
     setError(null);
     setPages([]);
     setTotal(0);
-    // comick chapter IDs are prefixed 'comick_ch_'
     const isComick = String(chapterId).startsWith('comick_ch_');
     const realId = isComick ? chapterId.replace('comick_ch_', '') : chapterId;
     const fetcher = isComick ? comickChapterPages(realId) : fetchChapterPages(realId);
-    fetcher
+    Promise.resolve(fetcher)
       .then(({ pages: p, total: t }) => {
         setPages(p || []);
         setTotal(t || 0);
         if (!p || !p.length) setError('No pages available for this chapter');
       })
-      .catch(e => { setError(e.message); })
+      .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }, [chapterId]);
 
   return { pages, total, loading, error };
-        }
+  }
