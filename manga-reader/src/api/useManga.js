@@ -1,129 +1,175 @@
-// Custom React hooks for MangaDex API with mock fallback
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   fetchTrending, fetchLatest, fetchByCategory,
-  searchManga, fetchMangaDetail, fetchChapters,
-  fetchChapterPages, fetchStats,
+  searchManga, fetchMangaDetail, fetchChapters, fetchChapterPages,
 } from './mangadex';
-import { getScraperUpdates, getMangaById, LIBRARY_DATA } from '../data/mockData';
+import {
+  comickTrending, comickLatest, comickByCategory,
+  comickSearch, comickDetail, comickChapters, comickChapterPages,
+} from './comick';
 
-// â”€â”€ Generic fetch hook â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-function useFetch(fetchFn, fallbackFn, deps = []) {
-  const [data,      setData]      = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState(null);
-  const [lastFetch, setLastFetch] = useState(null);
-  const [usingMock, setUsingMock] = useState(false);
+// Merge two arrays, dedup by normalised title, cap at limit
+function mergeManga(a, b, limit) {
+  limit = limit || 40;
+  const seen = new Set();
+  const result = [];
+  for (const item of [...a, ...b]) {
+    const key = (item.title || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+    if (result.length >= limit) break;
+  }
+  return result;
+}
+
+// â”€â”€ Trending â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+export function useTrending() {
+  const [manga, setManga] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [lastUpdate, setLastUpdate] = useState(null);
+  const timerRef = useRef(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const result = await fetchFn();
-      if (!result || result.length === 0) {
-        // API returned empty â€” use mock fallback
-        const mock = fallbackFn ? fallbackFn() : [];
-        setData(mock);
-        setUsingMock(true);
-      } else {
-        setData(result);
-        setUsingMock(false);
+      // Fire both in parallel
+      const [mdx, cmk] = await Promise.allSettled([fetchTrending(20), comickTrending(20)]);
+      const mdxList = mdx.status === 'fulfilled' ? mdx.value : [];
+      const cmkList = cmk.status === 'fulfilled' ? cmk.value : [];
+      // Interleave: alternate sources so both appear
+      const interleaved = [];
+      const maxLen = Math.max(mdxList.length, cmkList.length);
+      for (let i = 0; i < maxLen; i++) {
+        if (mdxList[i]) interleaved.push(mdxList[i]);
+        if (cmkList[i]) interleaved.push(cmkList[i]);
       }
-      setLastFetch(new Date());
-    } catch (err) {
-      // API failed â€” use mock fallback silently
-      const mock = fallbackFn ? fallbackFn() : [];
-      setData(mock);
-      setUsingMock(true);
-      setError(err.message);
+      const merged = mergeManga(interleaved, [], 40);
+      setManga(merged);
+      setLastUpdate(new Date());
+      if (merged.length === 0) setError('No results');
+    } catch (e) {
+      setError(e.message);
     } finally {
       setLoading(false);
     }
-  }, deps); // eslint-disable-line
+  }, []);
 
-  useEffect(() => { load(); }, [load]); // eslint-disable-line
-
-  return { data, loading, error, reload: load, lastFetch, usingMock };
-}
-
-// â”€â”€ Trending â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-export function useTrending(limit = 20) {
-  const hook = useFetch(
-    () => fetchTrending(limit),
-    () => getScraperUpdates().filter(m => m.isTrending),
-    [limit]
-  );
-  // Auto-refresh every 10 min
   useEffect(() => {
-    const t = setInterval(() => hook.reload(), 10 * 60 * 1000);
-    return () => clearInterval(t);
-  }, []); // eslint-disable-line
-  return hook;
+    load();
+    timerRef.current = setInterval(load, 10 * 60 * 1000);
+    return () => clearInterval(timerRef.current);
+  }, [load]);
+
+  return { manga, loading, error, lastUpdate, refresh: load };
 }
 
 // â”€â”€ Latest â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-export function useLatest(limit = 20) {
-  const hook = useFetch(
-    () => fetchLatest(limit),
-    () => getScraperUpdates().filter(m => m.isNew),
-    [limit]
-  );
-  // Auto-refresh every 5 min
+export function useLatest() {
+  const [manga, setManga] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const timerRef = useRef(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [mdx, cmk] = await Promise.allSettled([fetchLatest(20), comickLatest(20)]);
+      const mdxList = mdx.status === 'fulfilled' ? mdx.value : [];
+      const cmkList = cmk.status === 'fulfilled' ? cmk.value : [];
+      const interleaved = [];
+      const maxLen = Math.max(mdxList.length, cmkList.length);
+      for (let i = 0; i < maxLen; i++) {
+        if (mdxList[i]) interleaved.push(mdxList[i]);
+        if (cmkList[i]) interleaved.push(cmkList[i]);
+      }
+      const merged = mergeManga(interleaved, [], 40);
+      setManga(merged);
+      if (merged.length === 0) setError('No results');
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    const t = setInterval(() => hook.reload(), 5 * 60 * 1000);
-    return () => clearInterval(t);
-  }, []); // eslint-disable-line
-  return hook;
+    load();
+    timerRef.current = setInterval(load, 5 * 60 * 1000);
+    return () => clearInterval(timerRef.current);
+  }, [load]);
+
+  return { manga, loading, error, refresh: load };
 }
 
 // â”€â”€ Category â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export function useCategory(categoryId) {
-  return useFetch(
-    () => categoryId ? fetchByCategory(categoryId) : Promise.resolve([]),
-    () => categoryId
-      ? getScraperUpdates().filter(m => m.genres?.includes(categoryId))
-      : [],
-    [categoryId]
-  );
+  const [manga, setManga] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!categoryId) return;
+    setLoading(true);
+    setError(null);
+    Promise.allSettled([fetchByCategory(categoryId, 20), comickByCategory(categoryId, 20)])
+      .then(([mdx, cmk]) => {
+        const mdxList = mdx.status === 'fulfilled' ? mdx.value : [];
+        const cmkList = cmk.status === 'fulfilled' ? cmk.value : [];
+        const interleaved = [];
+        const maxLen = Math.max(mdxList.length, cmkList.length);
+        for (let i = 0; i < maxLen; i++) {
+          if (mdxList[i]) interleaved.push(mdxList[i]);
+          if (cmkList[i]) interleaved.push(cmkList[i]);
+        }
+        const merged = mergeManga(interleaved, [], 40);
+        setManga(merged);
+        if (merged.length === 0) setError('No results');
+      })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [categoryId]);
+
+  return { manga, loading, error };
 }
 
 // â”€â”€ Search â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export function useSearch(query) {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState(null);
+  const [error, setError] = useState(null);
+  const timerRef = useRef(null);
 
   useEffect(() => {
-    if (!query?.trim()) { setResults([]); return; }
-    const timer = setTimeout(async () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (!query || !query.trim()) { setResults([]); setLoading(false); return; }
+    timerRef.current = setTimeout(async () => {
       setLoading(true);
+      setError(null);
       try {
-        const data = await searchManga(query);
-        if (data.length > 0) {
-          setResults(data);
-        } else {
-          // Fallback to mock search
-          const q = query.toLowerCase();
-          const mock = getScraperUpdates().filter(m =>
-            m.title.toLowerCase().includes(q) ||
-            m.author.toLowerCase().includes(q)
-          );
-          setResults(mock);
+        const [mdx, cmk] = await Promise.allSettled([searchManga(query, 20), comickSearch(query, 20)]);
+        const mdxList = mdx.status === 'fulfilled' ? mdx.value : [];
+        const cmkList = cmk.status === 'fulfilled' ? cmk.value : [];
+        const interleaved = [];
+        const maxLen = Math.max(mdxList.length, cmkList.length);
+        for (let i = 0; i < maxLen; i++) {
+          if (mdxList[i]) interleaved.push(mdxList[i]);
+          if (cmkList[i]) interleaved.push(cmkList[i]);
         }
-      } catch (err) {
-        // Fallback to mock search
-        const q = query.toLowerCase();
-        const mock = getScraperUpdates().filter(m =>
-          m.title.toLowerCase().includes(q) ||
-          m.author.toLowerCase().includes(q)
-        );
-        setResults(mock);
-        setError(err.message);
+        const merged = mergeManga(interleaved, [], 40);
+        setResults(merged);
+        if (merged.length === 0) setError('No results found');
+      } catch (e) {
+        setError(e.message);
+        setResults([]);
       } finally {
         setLoading(false);
       }
-    }, 600);
-    return () => clearTimeout(timer);
+    }, 500);
+    return () => clearTimeout(timerRef.current);
   }, [query]);
 
   return { results, loading, error };
@@ -131,28 +177,21 @@ export function useSearch(query) {
 
 // â”€â”€ Manga Detail â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export function useMangaDetail(mangaId) {
-  const [manga,   setManga]   = useState(null);
+  const [manga, setManga] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     if (!mangaId) return;
     setLoading(true);
-    Promise.all([fetchMangaDetail(mangaId), fetchStats(mangaId)])
-      .then(([detail, stats]) => {
-        if (detail) {
-          setManga({
-            ...detail,
-            rating: stats.rating,
-            views: stats.follows > 1000000
-              ? (stats.follows / 1000000).toFixed(1) + 'M'
-              : stats.follows > 1000
-                ? (stats.follows / 1000).toFixed(0) + 'K'
-                : String(stats.follows),
-          });
-        }
-      })
-      .catch(err => setError(err.message))
+    setError(null);
+    const isComick = String(mangaId).startsWith('comick_');
+    const fetcher = isComick
+      ? comickDetail(mangaId.replace('comick_', ''))
+      : fetchMangaDetail(mangaId);
+    fetcher
+      .then(data => { setManga(data); if (!data) setError('Not found'); })
+      .catch(e => setError(e.message))
       .finally(() => setLoading(false));
   }, [mangaId]);
 
@@ -160,44 +199,54 @@ export function useMangaDetail(mangaId) {
 }
 
 // â”€â”€ Chapters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-export function useChapters(mangaId, limit = 30) {
-  return useFetch(
-    () => mangaId ? fetchChapters(mangaId, limit) : Promise.resolve([]),
-    () => [], // no mock chapters
-    [mangaId, limit]
-  );
+export function useChapters(mangaId) {
+  const [chapters, setChapters] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (!mangaId) return;
+    setLoading(true);
+    setError(null);
+    const isComick = String(mangaId).startsWith('comick_');
+    const fetcher = isComick
+      ? comickChapters(mangaId.replace('comick_', ''))
+      : fetchChapters(mangaId);
+    fetcher
+      .then(data => { setChapters(data || []); if (!data || !data.length) setError('No chapters available'); })
+      .catch(e => setError(e.message))
+      .finally(() => setLoading(false));
+  }, [mangaId]);
+
+  return { chapters, loading, error };
 }
 
 // â”€â”€ Chapter Pages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export function useChapterPages(chapterId) {
-  const [pages,   setPages]   = useState([]);
-  const [total,   setTotal]   = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState(null);
+  const [pages, setPages] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     if (!chapterId) { setLoading(false); return; }
     setLoading(true);
+    setError(null);
     setPages([]);
-    fetchChapterPages(chapterId)
+    setTotal(0);
+    // comick chapter IDs are prefixed 'comick_ch_'
+    const isComick = String(chapterId).startsWith('comick_ch_');
+    const realId = isComick ? chapterId.replace('comick_ch_', '') : chapterId;
+    const fetcher = isComick ? comickChapterPages(realId) : fetchChapterPages(realId);
+    fetcher
       .then(({ pages: p, total: t }) => {
         setPages(p || []);
         setTotal(t || 0);
+        if (!p || !p.length) setError('No pages available for this chapter');
       })
-      .catch(err => {
-        setError(err.message);
-        setPages([]);
-      })
+      .catch(e => { setError(e.message); })
       .finally(() => setLoading(false));
   }, [chapterId]);
 
   return { pages, total, loading, error };
-}
-
-// â”€â”€ Library (always mock for now) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-export function useLibrary() {
-  return LIBRARY_DATA.map(e => ({
-    ...e,
-    manga: getMangaById(e.mangaId),
-  })).filter(e => e.manga);
-}
+        }
