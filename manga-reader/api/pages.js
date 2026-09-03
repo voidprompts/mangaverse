@@ -1,13 +1,19 @@
+export const config = { runtime: 'nodejs' };
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
   if (req.method === 'OPTIONS') return res.status(200).end();
+
   const { url } = req.query;
   if (!url) return res.status(400).send('Missing url');
+
   let decoded;
   try { decoded = decodeURIComponent(url); } catch(e) { return res.status(400).send('Bad url'); }
-  const allowed = ['mangadex.network','mangadex.org','uploads.mangadex.org'];
+
+  const allowed = ['mangadex.network', 'mangadex.org', 'uploads.mangadex.org'];
   if (!allowed.some(d => decoded.includes(d))) return res.status(403).send('Not allowed');
+
   try {
     const response = await fetch(decoded, {
       headers: {
@@ -17,13 +23,17 @@ export default async function handler(req, res) {
         'Origin': 'https://mangadex.org',
       },
     });
+
     if (!response.ok) return res.status(response.status).send('Upstream: ' + response.status);
+
     const contentType = response.headers.get('content-type') || 'image/jpeg';
-    const buffer = await response.arrayBuffer();
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 's-maxage=86400, stale-while-revalidate=3600');
-    res.setHeader('Content-Length', buffer.byteLength);
-    return res.status(200).send(Buffer.from(buffer));
+    res.setHeader('Content-Length', buffer.length);
+    return res.end(buffer);
   } catch (err) {
     return res.status(500).send('Error: ' + err.message);
   }
