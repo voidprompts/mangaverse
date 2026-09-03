@@ -185,4 +185,4 @@ function timeAgo(s) {
   if (mn < 60) return mn + 'm ago';
   if (h < 24) return h + 'h ago';
   return dy + 'd ago';
-  }
+}
