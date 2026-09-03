@@ -16,5 +16,17 @@ export async function fetchByCategory(categoryId,limit){limit=limit||20;const ta
 export async function searchManga(query,limit){limit=limit||20;if(!query||!query.trim())return[];try{const path='/manga?limit='+limit+'&title='+encodeURIComponent(query.trim())+'&contentRating[]=safe&contentRating[]=suggestive&includes[]=cover_art&includes[]=author&hasAvailableChapters=true';const data=await apiFetch(path);return(data.data||[]).map(function(m){return fmt(m);});}catch(err){console.warn('searchManga:',err.message);return[];}}
 export async function fetchMangaDetail(mangaId){try{const data=await apiFetch('/manga/'+mangaId+'?includes[]=cover_art&includes[]=author');return fmt(data.data);}catch(err){console.warn('fetchMangaDetail:',err.message);return null;}}
 export async function fetchChapters(mangaId,limit){limit=limit||96;try{const path='/manga/'+mangaId+'/feed?limit='+limit+'&translatedLanguage[]=en&order[chapter]=asc&contentRating[]=safe&contentRating[]=suggestive';const data=await apiFetch(path);const all=data.data||[];const readable=all.filter(function(ch){return!ch.attributes.externalUrl&&(ch.attributes.pages||0)>0;});const list=readable.length>0?readable:all;return list.map(function(ch){return{id:ch.id,num:ch.attributes.chapter||'?',title:ch.attributes.title||'Chapter '+(ch.attributes.chapter||'?'),pages:ch.attributes.pages||0,date:timeAgo(ch.attributes.publishAt),hasPages:!ch.attributes.externalUrl&&(ch.attributes.pages||0)>0};});}catch(err){console.warn('fetchChapters:',err.message);return[];}}
-export async function fetchChapterPages(chapterId){if(!chapterId)return{pages:[],total:0};try{const data=await apiFetch('/at-home/server/'+chapterId);const baseUrl=data.baseUrl;const hash=data.chapter&&data.chapter.hash?data.chapter.hash:'';const saver=data.chapter&&data.chapter.dataSaver?data.chapter.dataSaver:[];const hq=data.chapter&&data.chapter.data?data.chapter.data:[];return{pages:saver.map(function(f,i){return{index:i+1,url:PROXY+encodeURIComponent(baseUrl+'/data-saver/'+hash+'/'+f),urlHQ:PROXY+encodeURIComponent(baseUrl+'/data/'+hash+'/'+(hq[i]||f))};},),total:saver.length};}catch(err){console.warn('fetchChapterPages:',err.message);return{pages:[],total:0};}}
+export async function fetchChapterPages(chapterId){
+  if(!chapterId)return{pages:[],total:0};
+  try{
+    const res=await fetch(BASE+'/at-home/server/'+chapterId);
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    const data=await res.json();
+    const baseUrl=data.baseUrl;
+    const hash=data.chapter&&data.chapter.hash?data.chapter.hash:'';
+    const saver=data.chapter&&data.chapter.dataSaver?data.chapter.dataSaver:[];
+    const hq=data.chapter&&data.chapter.data?data.chapter.data:[];
+    return{pages:saver.map(function(f,i){return{index:i+1,url:baseUrl+'/data-saver/'+hash+'/'+f,urlHQ:baseUrl+'/data/'+hash+'/'+(hq[i]||f)};}),total:saver.length};
+  }catch(err){console.warn('fetchChapterPages:',err.message);return{pages:[],total:0};}
+}
 export async function fetchStats(mangaId){try{const data=await apiFetch('/statistics/manga/'+mangaId);const s=data.statistics&&data.statistics[mangaId]?data.statistics[mangaId]:null;return{rating:s&&s.rating&&s.rating.bayesian?s.rating.bayesian.toFixed(1):'N/A',follows:s&&s.follows?s.follows:0};}catch(e){return{rating:'N/A',follows:0};}}
