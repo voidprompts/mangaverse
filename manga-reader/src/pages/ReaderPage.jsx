@@ -7,7 +7,12 @@ import {
 import { useChapters, useChapterPages } from '../api/useManga';
 
 function isRealMangaId(id) {
-  return typeof id === 'string' && id.includes('-') && id.length > 30;
+  if (!id || typeof id !== 'string') return false;
+  // MangaDex UUID: long string with dashes
+  if (id.includes('-') && id.length > 30) return true;
+  // Comick ID: prefixed with 'comick_'
+  if (id.startsWith('comick_')) return true;
+  return false;
 }
 
 const FALLBACK_PAGES = [
@@ -39,7 +44,9 @@ function FallbackPage({ index, title }) {
 function RealPage({ url, index, title }) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError]   = useState(false);
+
   if (error) return <FallbackPage index={index} title={title} />;
+
   return (
     <div className="w-full max-w-2xl mx-auto bg-black relative" style={{ minHeight: '200px' }}>
       {!loaded && (
@@ -72,8 +79,8 @@ export default function ReaderPage({ manga, setPage }) {
 
   const isReal = isRealMangaId(manga && manga.id);
 
-  const { data: chapters, loading: chaptersLoading } = useChapters(
-    isReal ? manga.id : null, 96
+  const { chapters, loading: chaptersLoading } = useChapters(
+    isReal ? manga.id : null
   );
 
   useEffect(() => {
@@ -86,6 +93,7 @@ export default function ReaderPage({ manga, setPage }) {
   const { pages: apiPages, loading: pagesLoading } = useChapterPages(
     selectedChapter ? selectedChapter.id : null
   );
+
 
   const hasRealPages = apiPages && apiPages.length > 0;
   const isLoading    = isReal && (chaptersLoading || (selectedChapter && pagesLoading));
@@ -125,6 +133,8 @@ export default function ReaderPage({ manga, setPage }) {
 
   return (
     <div className={'fixed inset-0 ' + bg + ' z-50 flex flex-col'} onClick={resetUI} onMouseMove={resetUI}>
+
+      {/* TOP BAR */}
       <div className={'flex-shrink-0 flex items-center justify-between px-3 py-2 ' + panelBg + ' border-b ' + border + ' transition-all duration-300 ' + (showUI ? 'opacity-100' : 'opacity-0 -translate-y-full pointer-events-none')}>
         <div className="flex items-center gap-2 min-w-0">
           <button onClick={() => setPage('discover')} className={subtext + ' hover:text-white flex-shrink-0'}>
@@ -133,10 +143,14 @@ export default function ReaderPage({ manga, setPage }) {
           <div className="min-w-0">
             <p className={'text-xs font-bold truncate max-w-[130px] ' + text}>{mangaTitle}</p>
             <p className={'text-xs ' + subtext}>
-              {isLoading ? 'Loading...' : selectedChapter ? 'Chapter ' + selectedChapter.num : isReal ? 'Loading chapters...' : 'Preview Mode'}
+              {isLoading ? 'Loading...'
+                : selectedChapter ? 'Chapter ' + selectedChapter.num
+                : isReal ? 'Loading chapters...'
+                : 'Preview Mode'}
             </p>
           </div>
         </div>
+
         <div className="flex items-center gap-1.5 flex-shrink-0">
           {isReal && chapters && chapters.length > 0 && (
             <div className="relative">
@@ -144,34 +158,53 @@ export default function ReaderPage({ manga, setPage }) {
                 value={selectedChapter ? selectedChapter.id : ''}
                 onChange={e => {
                   const ch = chapters.find(c => c.id === e.target.value);
-                  if (ch) { setSelectedChapter(ch); setCurrentPage(0); if (containerRef.current) containerRef.current.scrollTo(0, 0); }
+                  if (ch) {
+                    setSelectedChapter(ch);
+                    setCurrentPage(0);
+                    if (containerRef.current) containerRef.current.scrollTo(0, 0);
+                  }
                 }}
                 className={'appearance-none pl-2 pr-6 py-1 rounded-full text-xs font-semibold border-0 outline-none cursor-pointer max-w-[100px] ' + (darkMode ? 'bg-gray-800 text-gray-200' : 'bg-stone-100 text-gray-700')}>
-                {chapters.map(ch => (<option key={ch.id} value={ch.id}>Ch. {ch.num}</option>))}
+                {chapters.map(ch => (
+                  <option key={ch.id} value={ch.id}>Ch. {ch.num}</option>
+                ))}
               </select>
               <ChevronDown className={'absolute right-1.5 top-1/2 -translate-y-1/2 w-3 h-3 pointer-events-none ' + subtext} />
             </div>
           )}
-          <button onClick={() => setReadingMode(m => m === 'scroll' ? 'single' : 'scroll')} className={'p-1.5 rounded-full text-xs transition ' + btnBg}>
+
+          <button onClick={() => setReadingMode(m => m === 'scroll' ? 'single' : 'scroll')}
+            className={'p-1.5 rounded-full text-xs transition ' + btnBg}>
             {readingMode === 'scroll' ? <List className="w-3.5 h-3.5" /> : <BookOpen className="w-3.5 h-3.5" />}
           </button>
-          <button onClick={() => setDarkMode(d => !d)} className={'p-1.5 rounded-full transition ' + btnBg}>
+
+          <button onClick={() => setDarkMode(d => !d)}
+            className={'p-1.5 rounded-full transition ' + btnBg}>
             {darkMode ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
           </button>
-          <button onClick={() => setPage('discover')} className="p-1.5 rounded-full bg-red-500/20 text-red-400 hover:bg-red-500/30 transition">
+
+          <button onClick={() => setPage('discover')}
+            className="p-1.5 rounded-full bg-red-500/20 text-red-400 hover:bg-red-500/30 transition">
             <ChevronLeft className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
+
+      {/* PROGRESS BAR */}
       <div className="flex-shrink-0 h-0.5 bg-gray-800">
-        <div className="h-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-all duration-300" style={{ width: progress + '%' }} />
+        <div className="h-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-all duration-300"
+          style={{ width: progress + '%' }} />
       </div>
+
+      {/* LOADING STATE */}
       {isLoading && (
         <div className="flex-1 flex flex-col items-center justify-center gap-4">
           <Loader className="w-10 h-10 animate-spin text-indigo-400" />
           <p className={'text-sm ' + subtext}>Loading chapter pages...</p>
         </div>
       )}
+
+      {/* SCROLL MODE */}
       {!isLoading && readingMode === 'scroll' && (
         <div ref={containerRef} className="flex-1 overflow-y-auto">
           <div className="flex flex-col items-center gap-1 pb-20">
@@ -181,27 +214,48 @@ export default function ReaderPage({ manga, setPage }) {
                 : <FallbackPage key={i} index={i} title={mangaTitle} />
             )}
           </div>
+          {/* End of chapter */}
           <div className={'text-center py-8 ' + subtext}>
             <p className="text-sm font-medium">End of Chapter</p>
-            <button onClick={() => setPage('discover')} className="mt-3 px-6 py-2 bg-gradient-to-r from-indigo-500 to-violet-600 text-white rounded-full text-sm font-semibold">Back to Discover</button>
+            <button onClick={() => setPage('discover')}
+              className="mt-3 px-6 py-2 bg-gradient-to-r from-indigo-500 to-violet-600 text-white rounded-full text-sm font-semibold">
+              Back to Discover
+            </button>
           </div>
         </div>
       )}
+
+      {/* SINGLE PAGE MODE */}
       {!isLoading && readingMode === 'single' && (
         <div className="flex-1 relative overflow-hidden">
           <div className="w-full h-full flex items-center justify-center overflow-auto">
             {hasRealPages
               ? <RealPage url={displayPages[currentPage].url} index={currentPage} title={mangaTitle} />
-              : <FallbackPage index={currentPage} title={mangaTitle} />}
+              : <FallbackPage index={currentPage} title={mangaTitle} />
+            }
           </div>
+          {/* Tap zones */}
           <div className="absolute inset-0 flex pointer-events-none">
-            <button className="flex-1 pointer-events-auto opacity-0" onClick={() => setCurrentPage(p => Math.max(p - 1, 0))} />
-            <button className="flex-1 pointer-events-auto opacity-0" onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages - 1))} />
+            <button className="flex-1 pointer-events-auto opacity-0"
+              onClick={() => setCurrentPage(p => Math.max(p - 1, 0))} />
+            <button className="flex-1 pointer-events-auto opacity-0"
+              onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages - 1))} />
           </div>
+          {/* Nav arrows */}
           <div className={'absolute bottom-6 left-0 right-0 flex items-center justify-center gap-4 transition-all duration-300 ' + (showUI ? 'opacity-100' : 'opacity-0 pointer-events-none')}>
-            <button onClick={() => setCurrentPage(p => Math.max(p - 1, 0))} disabled={currentPage === 0} className={'p-3 rounded-full transition ' + btnBg + ' disabled:opacity-30'}><ChevronLeft className="w-5 h-5" /></button>
-            <span className={'text-sm font-medium ' + text}>{currentPage + 1} / {totalPages}</span>
-            <button onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages - 1))} disabled={currentPage === totalPages - 1} className={'p-3 rounded-full transition ' + btnBg + ' disabled:opacity-30'}><ChevronRight className="w-5 h-5" /></button>
+            <button onClick={() => setCurrentPage(p => Math.max(p - 1, 0))}
+              disabled={currentPage === 0}
+              className={'p-3 rounded-full transition ' + btnBg + ' disabled:opacity-30'}>
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <span className={'text-sm font-medium ' + text}>
+              {currentPage + 1} / {totalPages}
+            </span>
+            <button onClick={() => setCurrentPage(p => Math.min(p + 1, totalPages - 1))}
+              disabled={currentPage === totalPages - 1}
+              className={'p-3 rounded-full transition ' + btnBg + ' disabled:opacity-30'}>
+              <ChevronRight className="w-5 h-5" />
+            </button>
           </div>
         </div>
       )}
