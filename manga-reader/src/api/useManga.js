@@ -48,7 +48,7 @@ async function safeBoth(fnA, fnB) {
 }
 
 // â”€â”€ Trending â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-export function useTrending() {
+export function useTrending(limit) {
   const [manga, setManga] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -60,10 +60,10 @@ export function useTrending() {
     setError(null);
     try {
       const [mdxList, cmkList] = await safeBoth(
-        () => fetchTrending(20),
-        () => comickTrending(20)
+        () => fetchTrending(limit || 20),
+        () => comickTrending(limit || 20)
       );
-      const merged = mergeManga(interleave(mdxList, cmkList), [], 40);
+      const merged = mergeManga(interleave(mdxList, cmkList), [], (limit || 20) * 2);
       setManga(merged);
       setLastUpdate(new Date());
       if (merged.length === 0) setError('No results');
@@ -72,7 +72,7 @@ export function useTrending() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [limit]);
 
   useEffect(() => {
     load();
@@ -80,11 +80,20 @@ export function useTrending() {
     return () => clearInterval(timerRef.current);
   }, [load]);
 
-  return { manga, loading, error, lastUpdate, refresh: load };
+  return {
+    manga,
+    data: manga,
+    loading,
+    error,
+    lastUpdate,
+    lastFetch: lastUpdate,
+    refresh: load,
+    reload: load,
+  };
 }
 
 // â”€â”€ Latest â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-export function useLatest() {
+export function useLatest(limit) {
   const [manga, setManga] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -95,10 +104,10 @@ export function useLatest() {
     setError(null);
     try {
       const [mdxList, cmkList] = await safeBoth(
-        () => fetchLatest(20),
-        () => comickLatest(20)
+        () => fetchLatest(limit || 20),
+        () => comickLatest(limit || 20)
       );
-      const merged = mergeManga(interleave(mdxList, cmkList), [], 40);
+      const merged = mergeManga(interleave(mdxList, cmkList), [], (limit || 20) * 2);
       setManga(merged);
       if (merged.length === 0) setError('No results');
     } catch (e) {
@@ -106,7 +115,7 @@ export function useLatest() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [limit]);
 
   useEffect(() => {
     load();
@@ -114,11 +123,18 @@ export function useLatest() {
     return () => clearInterval(timerRef.current);
   }, [load]);
 
-  return { manga, loading, error, refresh: load };
+  return {
+    manga,
+    data: manga,
+    loading,
+    error,
+    refresh: load,
+    reload: load,
+  };
 }
 
 // â”€â”€ Category â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-export function useCategory(categoryId) {
+export function useCategory(categoryId, limit) {
   const [manga, setManga] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -128,21 +144,26 @@ export function useCategory(categoryId) {
     setLoading(true);
     setError(null);
     safeBoth(
-      () => fetchByCategory(categoryId, 20),
-      () => comickByCategory(categoryId, 20)
+      () => fetchByCategory(categoryId, limit || 20),
+      () => comickByCategory(categoryId, limit || 20)
     ).then(([mdxList, cmkList]) => {
-      const merged = mergeManga(interleave(mdxList, cmkList), [], 40);
+      const merged = mergeManga(interleave(mdxList, cmkList), [], (limit || 20) * 2);
       setManga(merged);
       if (merged.length === 0) setError('No results');
     }).catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, [categoryId]);
+  }, [categoryId, limit]);
 
-  return { manga, loading, error };
+  return {
+    manga,
+    data: manga,
+    loading,
+    error,
+  };
 }
 
 // â”€â”€ Search â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-export function useSearch(query) {
+export function useSearch(query, limit) {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -156,10 +177,10 @@ export function useSearch(query) {
       setError(null);
       try {
         const [mdxList, cmkList] = await safeBoth(
-          () => searchManga(query, 20),
-          () => comickSearch(query, 20)
+          () => searchManga(query, limit || 20),
+          () => comickSearch(query, limit || 20)
         );
-        const merged = mergeManga(interleave(mdxList, cmkList), [], 40);
+        const merged = mergeManga(interleave(mdxList, cmkList), [], (limit || 20) * 2);
         setResults(merged);
         if (merged.length === 0) setError('No results found');
       } catch (e) {
@@ -170,9 +191,14 @@ export function useSearch(query) {
       }
     }, 500);
     return () => clearTimeout(timerRef.current);
-  }, [query]);
+  }, [query, limit]);
 
-  return { results, loading, error };
+  return {
+    results,
+    data: results,
+    loading,
+    error,
+  };
 }
 
 // â”€â”€ Manga Detail â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -195,11 +221,16 @@ export function useMangaDetail(mangaId) {
       .finally(() => setLoading(false));
   }, [mangaId]);
 
-  return { manga, loading, error };
+  return {
+    manga,
+    data: manga,
+    loading,
+    error,
+  };
 }
 
 // â”€â”€ Chapters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-export function useChapters(mangaId) {
+export function useChapters(mangaId, limit) {
   const [chapters, setChapters] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -210,8 +241,8 @@ export function useChapters(mangaId) {
     setError(null);
     const isComick = String(mangaId).startsWith('comick_');
     const fetcher = isComick
-      ? comickChapters(mangaId.replace('comick_', ''))
-      : fetchChapters(mangaId);
+      ? comickChapters(mangaId.replace('comick_', ''), limit)
+      : fetchChapters(mangaId, limit);
     Promise.resolve(fetcher)
       .then(data => {
         setChapters(data || []);
@@ -219,9 +250,14 @@ export function useChapters(mangaId) {
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false));
-  }, [mangaId]);
+  }, [mangaId, limit]);
 
-  return { chapters, loading, error };
+  return {
+    chapters,
+    data: chapters,
+    loading,
+    error,
+  };
 }
 
 // â”€â”€ Chapter Pages â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -250,5 +286,11 @@ export function useChapterPages(chapterId) {
       .finally(() => setLoading(false));
   }, [chapterId]);
 
-  return { pages, total, loading, error };
-  }
+  return {
+    pages,
+    data: pages,
+    total,
+    loading,
+    error,
+  };
+      }
